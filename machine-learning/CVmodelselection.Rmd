@@ -1,0 +1,377 @@
+---
+title: "Cross-Validation for Model Selection"
+author: "Jessica Kraker"
+date: "11/25/2023"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Libraries
+```{r, warning=F, message=F}
+library(readr)
+library(dplyr)
+library(ggformula)
+library(FNN)
+```
+
+### Read in Data
+```{r, warning=F, message=F}
+Exercise = read_csv("BP_and_exercise.csv")
+dim(Exercise)
+```
+
+\newpage
+
+# Data Cleaning and Organization - REVIEW
+
+Clean data entry errors
+```{r}
+Exercise = Exercise %>%
+  filter(systolic > diastolic)  # removes 5 points
+dim(Exercise)
+```
+
+Review and remove impossible data
+```{r}
+out_diastolic <- Exercise %>%
+  filter(diastolic < 10)   # identifies 2 points
+out_diastolic
+
+out_sitbend <- Exercise %>%
+  filter(`sit and bend forward_cm` > height_cm) # identifies 2 more points
+
+Exercise_no_outliers <- Exercise %>%
+  filter(diastolic > 10) %>%
+  filter(`sit and bend forward_cm` < height_cm)
+dim(Exercise_no_outliers)
+
+fullfit <- lm(systolic ~ .-height_ft -diastolic, 
+          data = Exercise_no_outliers)
+```
+
+\newpage
+
+# Assessing our model - REVIEW
+```{r}
+RNGkind(sample.kind = "Rejection")
+set.seed(1)
+
+n = nrow(Exercise)
+num_train = round(n*2/3)
+num_test = n - num_train
+
+groups = c(rep(1, num_train), rep(2, num_test))
+random_groups = sample(groups, n)
+
+in_train = (random_groups == 1)
+
+in_test = (random_groups == 2)
+```
+
+```{r}
+fit_train = lm(systolic ~ .-height_ft -diastolic, 
+          data = Exercise[in_train, ])
+predictions = predict(fit_train, 
+                      newdata = Exercise[in_test, ])
+```
+
+MAE
+```{r}
+mean(abs(Exercise$systolic[in_test] - predictions))
+```
+
+\newpage
+
+# NEW - Cross-validation assessment of `fullModel`
+
+Identify and store response variable values:
+```{r}
+y = Exercise$systolic
+```
+
+## Reviewing / Defining the original model
+Lesson 1 introduced a `fullModel`: `systolic` related to all other variables except `height_ft` and `diastolic`.  
+
+Define / store that model in R:
+```{r}
+fullModel <- (systolic ~ .-height_ft -diastolic) # does not need parantheses, but visually helpful
+```
+
+Fitting the model:
+```{r}
+fullfit <- lm(fullModel, data = Exercise)
+```
+
+## Honestly assessing the model
+
+Set up the splits of the data - LOOCV:
+```{r, eval=F}
+nfolds=n
+cv_groups = (1:n) 
+```
+
+Set up the splits of the data - 10-fold CV:
+```{r}
+nfolds=10
+groups = rep(1:nfolds,length=n)  # nfolds is number of folds
+set.seed(2)  
+cv_groups = sample(groups,n)  # randomization involved (so we set seed to start consistently)
+```
+
+
+CV process, via for loop, to honestly assess the original model:
+```{r}
+allpredicted = rep(NA,n)   # storage for honest predictions
+ii=1
+for (ii in 1: nfolds) {    # ii is an easier string to search for index
+  in_train = (cv_groups != ii)     # logical vector indicating NOT group ii
+  in_test = (cv_groups == ii)     # logical vector indicating group ii
+
+  train_set = Exercise[in_train,]  # all data EXCEPT for group ii
+  test_set = Exercise[in_test, ]   # data in group ii
+  
+  fit_train <- lm(fullModel, data=train_set) # fit to train set
+  
+  predicted <- predict(fit_train, newdata = test_set)   # predict for test set
+  allpredicted[in_test] <- predicted              # store in locations for group ii
+}
+```
+
+Computation of honest summary measure `MSE_CV`:
+```{r}
+MSE_CV = mean((y - allpredicted)^2)
+MSE_CV
+```
+Computation of honest summary measure `MAE_CV`:
+```{r}
+MAE_CV = mean(abs(y - allpredicted))
+MAE_CV
+```
+Plot of response versus honest predictions:
+```{r}
+results_fullLM_CV <- data.frame(allpredicted, y)
+gf_point(y ~ allpredicted, data=results_fullLM_CV) |>
+  gf_abline(intercept=0, slope=1, color="orange3", linewidth = 2) |>
+  gf_abline(intercept=0-MAE_CV, slope=1, color="orange", linetype = 2) |>
+  gf_abline(intercept=0+MAE_CV, slope=1, color="orange", linetype = 2)
+```
+
+
+\newpage
+
+# NEW - compare various linear regression models
+
+Linear Model specifications 
+```{r}
+Model1 = (systolic ~ .-height_ft -diastolic) 
+Model2 = (systolic ~ age + `broad jump_cm` + height_ft + gender)
+Model3 = (systolic ~ age + `broad jump_cm` + gender + age:gender + `broad jump_cm`:gender)
+Model4 = (systolic ~ age + `broad jump_cm` + gender + class + age:gender + `broad jump_cm`:gender + age:class + `broad jump_cm`:class)
+
+allModels = list(Model1,Model2,Model3,Model4)
+allModels[[1]]
+```
+## CV process, use m as index for model
+```{r}
+allpredicted = rep(NA,n)   # storage for honest predictions
+
+m = 1
+# indexed model in cross-validation
+for (ii in 1: nfolds) {    # ii is an easier string to search for index
+  in_train = (cv_groups != ii)     # logical vector indicating NOT group ii
+  in_test = (cv_groups == ii)     # logical vector indicating group ii
+
+  train_set = Exercise[in_train,]  # all data EXCEPT for group ii
+  test_set = Exercise[in_test, ]   # data in group ii
+  
+  fit_train <- lm(allModels[[m]], data=train_set) # fit to train set
+  
+  predicted <- predict(fit_train, newdata = test_set)   # predict for test set
+  allpredicted[in_test] <- predicted              # store in locations for group ii
+}
+
+MAE_CV = mean(abs(y - allpredicted))
+MAE_CV
+
+results_LM_m_CV = data.frame(y, allpredicted)  # allpredicted will differ depending on model m
+gf_point(y ~ allpredicted, data=results_LM_m_CV,
+         title = paste("Compare Observed to Predicted for Model",m),
+         ylab = "Observed", xlab = "Predicted")
+```
+
+## CV process streamlined, loop through m as index for model
+```{r}
+# set up storage for results
+allMAEvaluesCV = rep(NA,length(allModels))
+allMSEvaluesCV = rep(NA,length(allModels))
+allplots <- list()
+
+# for-loop to cycle through models
+for (m in 1:length(allModels)) {
+  allpredicted = rep(NA,n)   # storage for honest predictions
+  # revised loop to do cross-validation
+  for (ii in 1: nfolds) {    # ii is an easier string to search for index
+    in_train = (cv_groups != ii)     # logical vector indicating NOT group ii
+    in_test = (cv_groups == ii)     # logical vector indicating group ii
+
+    train_set = Exercise[in_train,]  # all data EXCEPT for group ii
+    test_set = Exercise[in_test, ]   # data in group ii
+  
+    fit_train <- lm(allModels[[m]], data=train_set) # fit to train set
+  
+    predicted <- predict(fit_train, newdata = test_set)   # predict for test set
+    allpredicted[in_test] <- predicted              # store in locations for group ii
+  }
+  
+  allMSEvaluesCV[m] = mean((y - allpredicted)^2)
+  allMAEvaluesCV[m] = mean(abs(y - allpredicted))
+
+  results_LM_m_CV = data.frame(y, allpredicted)  # allpredicted will differ depending on model m
+  allplots[[m]] <- gf_point(y ~ allpredicted, data=results_LM_m_CV,
+         title = paste("Compare Observed to Predicted for Linear Model",m),
+         ylab = "Observed", xlab = "Predicted")
+}
+```
+
+## Review Results - Identify best model
+```{r}
+allMAEvaluesCV  # Model 1 is "best"
+modelnums = (1:4)
+
+gf_point(allMSEvaluesCV ~ modelnums)
+gf_point(allMAEvaluesCV ~ modelnums)
+```
+
+- Describe best model and visualize fit
+```{r}
+which.min(allMAEvaluesCV)
+minMAEvalueCV_linear <- allMAEvaluesCV[which.min(allMAEvaluesCV)]; minMAEvalueCV_linear
+bestlinearmodel <- allModels[[which.min(allMAEvaluesCV)]]; bestlinearmodel
+allplots[[which.min(allMAEvaluesCV)]]
+```
+
+- fit best model to full data
+```{r}
+fullfit <- lm(bestlinearmodel, data=Exercise)
+coef(fullfit)
+```
+
+\newpage
+
+# NEW - compare various kNN regression models
+
+Additional predictor preparation - one-hot encode and remove original
+```{r}
+str(Exercise)
+table(Exercise$gender)
+table(Exercise$class)
+
+Exercise <- mutate(Exercise,
+                  # genderM: indicate "M", with baseline "F"
+                  genderM=ifelse(gender == "M", 1, 0),
+                  # classA, classB, classC, classD: indicate each category of class
+                  classA=ifelse(class == "A", 1, 0),
+                  classB=ifelse(class == "B", 1, 0),
+                  classC=ifelse(class == "C", 1, 0),
+                  classD=ifelse(class == "D", 1, 0),
+                  gender=NULL, class=NULL)
+head(Exercise)
+
+# remove other BP measure and original-unit height_ft
+Exercise <- select(Exercise, -diastolic, -height_ft)
+head(Exercise)
+                
+# check
+names(Exercise)
+table(Exercise$genderM)
+table(Exercise$classA)
+table(Exercise$classB)
+table(Exercise$classC)
+table(Exercise$classD)
+```
+
+kNN Model specifications 
+```{r}
+# n is quite large
+sqrt(n)
+# try integers 1-20, then in steps of 10 up to 230 (double the square root)
+# kvals <- c(1:20,c(3:23)*10); kvals
+kvals <- c(c(1:23)*10); kvals
+
+# could also consider subsets of predictors
+```
+
+
+## CV process streamlined, loop through m as index for model
+```{r}
+# set up storage for results
+allMAEvaluesCV_kNN = rep(NA,length(kvals))
+allMSEvaluesCV_kNN = rep(NA,length(kvals))
+allplots <- list()
+
+# for-loop to cycle through models
+for (m in 1:length(kvals)) {
+  allpredicted = rep(NA,n)   # storage for honest predictions
+  
+  # revised loop to do cross-validation
+  for (ii in 1: nfolds) {    # ii is an easier string to search for index
+    in_train = (cv_groups != ii)     # logical vector indicating NOT group ii
+    in_test = (cv_groups == ii)     # logical vector indicating group ii
+
+    quant_train_std = scale(Exercise[in_train, c(1:2,4:7)]) # quantitative predictors in train set
+    quant_test_std = scale(Exercise[in_test, c(1:2,4:7)], 
+                           center = attr(quant_train_std, "scaled:center"),
+                           scale = attr(quant_train_std, "scaled:scale"))
+    x_train = cbind(quant_train_std,
+                    Exercise[in_train, c(8:12)])
+    x_test = cbind(quant_test_std,
+                    Exercise[in_test, c(8:12)])
+
+    knnfit <- knn.reg(x_train, x_test, y=Exercise$systolic[in_train], k=kvals[m])
+    predicted <-  knnfit$pred  # predict for test set
+    allpredicted[in_test] <- predicted              # store in locations for group ii
+  }
+  
+  allMSEvaluesCV_kNN[m] = mean((y - allpredicted)^2)
+  allMAEvaluesCV_kNN[m] = mean(abs(y - allpredicted))
+
+  results_kNN_m_CV = data.frame(y, allpredicted)  # allpredicted will differ depending on model m
+  allplots[[m]] <- gf_point(y ~ allpredicted, data=results_kNN_m_CV,
+         title = paste("Compare Observed to Predicted for kNN Model",m),
+         ylab = "Observed", xlab = "Predicted")
+  print(kvals[m])
+}
+```
+
+
+## Review Results - Identify best model
+```{r}
+allMAEvaluesCV_kNN  # Model  with k=150 is "best"
+
+gf_point(allMSEvaluesCV_kNN ~ kvals)
+gf_point(allMAEvaluesCV_kNN ~ kvals)
+```
+
+## Review Results - Identify best model
+```{r}
+which.min(allMAEvaluesCV_kNN)
+minMAEvalueCV_kNN <- allMAEvaluesCV_kNN[which.min(allMAEvaluesCV_kNN)]; minMAEvalueCV_kNN
+bestk <- kvals[which.min(allMAEvaluesCV_kNN)]; bestk
+allplots[[which.min(allMAEvaluesCV_kNN)]]  |>
+  gf_abline(intercept=0, slope=1, color="orange3", linewidth = 1) |>
+  gf_abline(intercept=0-minMAEvalueCV_kNN, slope=1, color="orange", linetype = 2) |>
+  gf_abline(intercept=0+minMAEvalueCV_kNN, slope=1, color="orange", linetype = 2)
+```
+
+# Finally, compare between methods
+```{r}
+all_methods <- c("Linear", "kNN")
+all_best_hyperparameters <- list(bestlinearmodel, bestk)
+all_methods_min_CV <- c(minMAEvalueCV_linear, minMAEvalueCV_kNN)
+all_methods[which.min(all_methods_min_CV)]
+all_best_hyperparameters[[which.min(all_methods_min_CV)]]
+```
+
