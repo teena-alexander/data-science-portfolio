@@ -29,9 +29,5 @@ This project applies multiple regression techniques to real-world datasets inclu
 ## Key Insight
 Robust regression methods improve model stability in the presence of outliers, and cross-validation provides an unbiased way to compare models.
 
-## Files
-- `Homework3.Rmd` → full analysis
-- `Homework3.docx` → report output (optional)
-
 ## Conclusion
 This project demonstrates that model choice significantly affects predictive accuracy, especially when outliers are present.
