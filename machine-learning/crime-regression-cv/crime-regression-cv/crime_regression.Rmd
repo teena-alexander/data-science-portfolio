@@ -1,0 +1,522 @@
+---
+title: "Homework 3 R markdown"
+author: "(your name here)"
+date: '`r Sys.Date()`'
+output:
+  word_document:
+    fig_height: 4
+    fig_width: 4.5
+  pdf_document:
+    fig_height: 4
+    fig_width: 4.5
+  html_document:
+    fig_height: 4
+    fig_width: 4.5
+---
+
+
+```{r, setup, include=FALSE}
+require(mosaic)   # Load additional packages here 
+
+# Some customization.  You can alter or delete as desired (if you know what you are doing).
+#trellis.par.set(theme=theme.mosaic()) # change default color scheme for lattice
+knitr::opts_chunk$set(
+  tidy=FALSE,     # display code as typed
+  size="small")   # slightly smaller font for code
+```
+
+#### **Intellectual Property:**
+These problems are the intellectual property of the instructors and may not be reproduced outside of this course.
+
+**.Rmd output format**:  The setting in this markdown document is `word_document`, since it is the output format listed at the top of the options (see lines 6-8 in .Rmd).  However, you have options for `word_document` or `pdf_document` - you may choose the output format (for your reading convenience, since the output is not directly submitted).
+
+
+***  
+
+
+#### Libraries used
+(feel welcome to include all libraries here)
+
+```{r, warning=F, message=F}
+library(smss)
+library(ISLR)
+library(dplyr)
+library(ggformula)
+library(readr)
+library(MASS)
+library(caret)
+library(robustbase)
+```
+
+
+\newpage
+
+###########################################################
+## Problem 1 -  Model Crime Rates with Robust Regression ##
+###########################################################
+
+
+In this problem, you will use robust regression to model crime rates in different states (plus Washington, DC).  
+
+**Data Set**: Use
+```{r}
+data("crime2005")
+head(crime2005)
+#str(crime2005)
+crime2005$STATE[8]
+
+```
+to load the **`crime2005`** data set, which is in the **smss** package.
+
+
+### Question 1 (1 point):
+
+For the **`crime2005`** data, use  (non-robust) multiple linear regression to model the crime rate per 10,000 people (`VI2`) as a function of the percentage of the population that live in metropolitan areas (`ME`) and the percentage of the population that live below the poverty line (`PO`).  
+
+Fill in the coefficient of `PO` to complete the fitted regression equation.  *Enter the value to 4 decimal places.*
+
+$\hat{VI2} = -56.8232 + 0.8155 \cdot ME +  \texttt{_____4.2600_____} \cdot PO$
+
+```{r, echo=TRUE}
+fit_lm=lm(VI2~ME+PO, data=crime2005)
+summary(fit_lm)
+crime2005[crime2005$STATE == "DC", ]
+```
+
+**Numerical Answer (AUTOGRADED on Canvas)**: 
+
+***
+
+### Question 2 (2 points):
+
+Plot the regression diagnostic plots for the model in the previous question. Which states (or other regions) appear to be outliers? Give the **names** of the states (you may refer to http://www.50states.com/abbreviations.htm), and **discuss visual observations** supporting your selection.
+
+```{r,fig.width=4, fig.height=4}
+plot(fit_lm)
+```
+
+**Text Answer**: 
+
+***
+
+### Question 3 (4 points):
+
+**Use a** *while* **loop** to perform iteratively reweighted least squares regression with Huber weights.  
+
+Enter your R code below.  
+
+**Code Answer**: 
+```{r}
+
+# Use the existing fit_lm from previous step
+oldcoef = rep(0, length(fit_lm$coef))  
+newcoef = fit_lm$coef  
+iter = 0  
+# Start the IRLS process
+while(sum(abs(oldcoef - newcoef)) > 0.0001 & iter < 100){
+    
+    # Compute residuals from the current model
+    residuals = fit_lm$residuals
+    
+    # Apply the Huber weight function
+    MAR = median(abs(residuals))
+    sigma = MAR/0.6745
+    k = 1.345*sigma
+    w = ifelse(abs(residuals) > k, k/abs(residuals), 1)
+    
+    # Fit the model with weights
+    fit_lm = lm(VI2 ~ ME + PO, data = crime2005, weights = w)
+    
+    # Increment the iteration counter
+    iter = iter + 1
+    
+    # Update the old and new coefficients
+    oldcoef = newcoef
+    newcoef = fit_lm$coef
+}
+
+# Print final coefficients after the loop
+print("Final coefficients after loop iteratively reweighted least squares regression with Huber weights. :")
+print(newcoef)
+
+
+```
+
+
+***
+
+### Question 4 (1 point):
+
+Fill in the coefficient of `PO` to complete the equation for the linear model you found in the previous question, using Huber weights. *Round the value to 4 decimal places.*
+
+$\hat{VI2} = -40.3927 + 0.6794 \cdot ME +  \texttt{__________} \cdot PO$
+
+   **Hint**:  It may be helpful to use `rlm()` to fit a model with Huber weights, and compare your result with your result from the previous question. The answers may be slightly different, but not very different. However, for this question, you should enter your results from the *while* loop.
+
+**Numerical Answer (AUTOGRADED on Canvas)**: 
+
+```{r, echo=TRUE}
+
+```
+
+***
+
+### Question 5 (2 points):
+
+Use `rlm()` to fit a robust regression model with Tukey’s bisquare weights.
+
+Enter your R code below.  
+
+**Code Answer**: 
+```{r, echo=TRUE}
+fit_rlm_bisquare= rlm(VI2~ME+PO,data=crime2005,psi=psi.bisquare)
+summary(fit_rlm_bisquare)
+```
+
+***
+
+### Question 6 (1 points):
+
+Fill in the coefficient of `PO` to complete the equation for the linear model you found in the previous question, using Tukey’s bisquare weights. *Round the value to 4 decimal places.*
+
+$\hat{VI2} = -31.2926 + 0.6114 \cdot ME +  \texttt{__________} \cdot PO$
+
+**Numerical Answer (AUTOGRADED on Canvas)**: 
+2.8081
+***
+
+### Question 7 (2 points):
+
+Fill in the blanks:  The coefficient of `PO` in Tukey's model is (higher/about the same/lower) than in the unweighted linear regression model.  This makes sense, because the outlier Washington, D.C. has an especially (high/low) percentage of people living below the poverty line, and its crime rate is (higher/about the same/lower) than would be expected based on a linear model.
+
+**Fill-in-the-blanks Answer (AUTOGRADED on Canvas)**: 
+
+```{r, fig.width=5, fig.height=4}
+
+
+
+```
+
+***
+
+### Question 8 (2 points):
+
+Make a scatterplot of the weights from the Tukey’s bisquare model (as a function of the index in the data set). For each point with a weight less than 0.8, label the point with the state abbreviation.  
+
+Use **Insert** -> **Image** to upload your graph of the weights vs. the fitted values to this question on Canvas.  
+
+**Note:** The STATE column is a factor variable.  For purposes of adding the labels, it may be helpful to convert it to a character variable.
+
+**Graph Answer**: 
+```{r, fig.width=5, fig.height=4}
+
+library(ggformula)
+
+# Fit the robust linear model using Tukey’s bisquare weights
+fit_rlm_bisquare = rlm(VI2 ~ ME + PO, data = crime2005, psi = psi.bisquare)
+
+# Extract the weights
+weights = fit_rlm_bisquare$w
+
+# Create a data frame with the weights and index for ggplot
+plot_data <- data.frame(
+  index = 1:length(weights),
+  weight = weights,
+  state = as.character(crime2005$STATE)
+)
+
+
+# Plot the Tukey's bisquare weights using ggplot as a scatterplot
+ggplot(plot_data, aes(x = index, y = weight)) +
+  geom_point(color = "blue", size = 1) +  # Scatterplot points
+  geom_text(data = subset(plot_data, weight < 0.8), 
+            aes(label = state), color = "red", vjust = -0.5, size = 3) +
+  labs(title = "Tukey's Bisquare Weights",
+       x = "Index",
+       y = "Weight") +
+  geom_hline(yintercept = 0.8, color = "red", linetype = "dashed") +
+  theme_minimal()
+
+
+
+```
+
+
+
+
+\newpage
+
+########################################################################
+## Problem 2 - Applying Cross-Validation for Assessment and Selection ##
+########################################################################
+
+In this problem, you will use functions from the **caret** package to apply 10-fold cross-validation of multiple linear regression and robust regression models.
+
+**Data Set**: Continue to use the **`crime2005`** data, as loaded in Problem 1.  
+
+***
+
+### Question 9 (2 points):
+
+Open the **caret** library and use the **`trainControl`** function to specify 10-fold cross-validation for assessment.
+
+Enter your R code below.  
+
+**Code Answer**: 
+```{r}
+
+training= trainControl(method="cv", number=10)
+
+```
+
+***
+
+### Question 10 (3 points):
+
+Apply 10-fold cross-validation to assess (non-robust) **multiple linear regression** for modeling the crime rate per 10,000 people (response `VI2`) as a function of the percentage of the population that live in metropolitan areas (`ME`) and the percentage of the population that live below the poverty line (`PO`).  
+
+   * Set R's seed to 3 (for Homework 3);
+   * Use the `train` function to apply 10-fold cross-validation for the multiple linear regression model; and
+   * Display the assessment measures.
+
+Enter your R code below.  
+
+**Code Answer**: 
+```{r}
+set.seed(3)
+fit_caret_lm <- train(VI2 ~ ME + PO,      
+                      data = crime2005,  
+                      method = "lm",     
+                      trControl = training)  
+fit_caret_lm$results
+```
+
+***
+
+### Question 11 (1 point):
+
+Report the $MAE_{CV}$ value for assessment of the multiple (non-robust) linear regression for modeling response variable `VI2` on the predictor variables `ME` and `PO`.   *Round your answer to 3 decimal places.*
+
+$MAE_{CV}$ = **Numeric Answer (AUTOGRADED)**
+13.958
+***
+
+### Question 12 (3 points):
+
+Apply 10-fold cross-validation to assess **robust regression** for modeling the crime rate per 10,000 people (response `VI2`) as a function of the percentage of the population that live in metropolitan areas (`ME`) and the percentage of the population that live below the poverty line (`PO`).  
+
+   * Set R's seed to 3 (for Homework 3);
+   * Use the `train` function to apply 10-fold cross-validation for the robust regression models, using the default options for `intercept` and `weights` and **add the argument `maxit = 100`** to ensure the iterations converge; and
+   * Display the assessment measures.
+
+Enter your R code below.  
+
+```{r}
+# Fit the robust regression model using rlm (Robust Linear Model) in caret
+set.seed(3)
+fit_caret_rlm <- train(VI2 ~ ME + PO, 
+                       data = crime2005,
+                       method = "rlm", 
+                       trControl = training,
+                       maxit = 100)
+
+# Display the assessment results
+fit_caret_rlm$results
+
+```
+
+***
+
+### Question 13 (2 points):
+
+Report the *minimum* $MAE_{CV}$ value for assessment of the six (default) robust regression models for modeling response variable `VI2` on the predictor variables `ME` and `PO`.   *Round your answer to 3 decimal places.*
+
+minimum $MAE_{CV}$ = **Numeric Answer (AUTOGRADED)**
+
+***
+```{r}
+# Find the minimum MAE value across all the models
+min_MAE_cv <- min(fit_caret_rlm$results$MAE)
+print(min_MAE_cv)
+```
+
+### Question 14 (2 points):
+Using the results of the previous cross-validation assessment, which model should be selected?
+**Multiple Choice (AUTOGRADED)**
+
+   * (non-robust) multiple linear regression model
+   * robust regression model **without** an intercept and with **Huber** weights
+   * robust regression model **with** an intercept and with **Huber** weights
+   * robust regression model **without** an intercept and with **Tukey's bisquare** weights
+   * robust regression model **with** an intercept and with **Tukey's bisquare** weights
+
+***
+
+### Question 15 (3 points):
+Referencing both visual observations from Problem 1 and behaviors of weighted / non-weighted regression, explain **why** your answer in the prior Question makes sense.  (2-3 sentences)
+
+**Text Answer**: 
+
+
+\newpage
+
+#####################################################################
+## Problem 3 - Efficient Cross-Validation Assessment for Auto Data ##
+#####################################################################
+
+In this problem, you will use functions from the **caret** package to apply Leave-One-Out Cross-Validation (LOOCV) of multiple linear regression and robust regression models.
+
+**Data Set**: For this problem, we will revisit the **`Auto`** data from the **ISLR** library.  [this data set was previously used in Homework 2]  
+
+***
+
+### Question 16 (1 point):
+```{r}
+data("Auto")
+head(Auto)
+```
+The below code:
+
+   * specifies use of Leave-One-Out Cross-Validation (LOOCV) for assessment by the argument `method = "LOOCV"` in the `trainControl` function; and 
+   * assesses **20**-nearest neighbor regression model, modeling response `mpg` on predictors `weight` and `year`, with standardization specified by `preProcess = c("center", "scale")`.
+
+
+```{r}
+train_method_Auto = trainControl(method="LOOCV")
+
+fit_caret_Auto_20NN <- train(mpg ~ weight + year,
+                             data = Auto,
+                             method = "knn",  
+                             trControl = train_method_Auto, 
+                             preProcess = c("center", "scale"), # for standardization of predictors
+                             tuneGrid = expand.grid(k = 20))
+fit_caret_Auto_20NN$results
+```
+
+Run the code and display the assessment measure results. Then, enter the value of $MAE_{LOOCV}$ below.
+
+**Numeric Answer [AUTOGRADED]**
+
+20-nearest-neighbors regression $MAE_{LOOCV}$ = 2.092
+
+***
+
+### Question 17 (2 points):
+
+Write code to apply **LOOCV**  to calculate $MAE_{LOOCV}$ for assessment of the (non-robust) multiple linear regression model of response `mpg` on predictors `weight` and `year`.
+
+Enter your R code below.  
+
+```{r}
+
+# Fit the multiple linear regression model using LOOCV
+fit_caret_Auto_LM <- train(mpg ~ weight + year,
+                           data = Auto,
+                           method = "lm",
+                           trControl = train_method_Auto )
+
+# Display the results
+fit_caret_Auto_LM$results
+
+```
+
+***
+
+### Question 18 (1 point):
+
+Enter the value of $MAE_{LOOCV}$ for assessment of the (non-robust) multiple linear regression model below.
+
+**Numeric Answer [AUTOGRADED]**
+
+multiple linear regression $MAE_{LOOCV}$ = 
+
+***
+
+### Question 19 (2 points):
+
+Write code to apply **LOOCV**  to calculate $MAE_{LOOCV}$ for assessment of the robust regression models of response `mpg` on predictors `weight` and `year`.
+Use the default options for `intercept` and `weights` and **add the argument `maxit = 100`** to ensure the iterations converge.
+
+Enter your R code below.  
+
+```{r}
+# Fit the robust regression model using LOOCV with maxit = 100
+fit_caret_Auto_Robust <- train(mpg ~ weight + year,
+                               data = Auto,
+                               method = "rlm",  # robust linear regression method
+                               trControl = train_method_Auto,
+                               maxit = 100)  # Ensure convergence by setting maxit
+
+# Display the results
+fit_caret_Auto_Robust$results
+```
+```{r}
+min1=min(fit_caret_Auto_Robust$results$MAE)
+min1
+```
+
+***
+
+### Question 20 (1 point):
+
+Enter the *minimum* value of $MAE_{LOOCV}$ for assessment of the robust regression models below.
+
+**Numeric Answer [AUTOGRADED]**
+
+robust regression *minimum* $MAE_{LOOCV}$ = 
+
+***
+
+### Question 21 (2 points):
+
+Based on your LOOCV results, do *linear* or *nonlinear* methods seem to produce more accurate predictions of `mpg` from predictors `weight` and `year`?  **Create and include** a plot that visually provides support for your conclusion.
+
+**Text and Plot Answer**: 
+
+
+```{r, fig.width=5, fig.height=4}
+library(caret)
+library(ggplot2)
+
+# Extract MAE values from each model, focusing on the first row (default parameters)
+mae_linear <- fit_caret_Auto_LM$results$MAE[1]  # Linear Regression
+mae_knn <- fit_caret_Auto_20NN$results$MAE[1]    # 20-Nearest Neighbors
+mae_robust <- fit_caret_Auto_Robust$results$MAE[1]  # Robust Regression
+mae_knn
+mae_linear
+
+mae_robust
+
+# Create a data frame with the MAE values
+mae_values <- data.frame(
+  Model = c( "20-Nearest Neighbors","Linear Regression", "Robust Regression"),
+  MAE_LOOCV = c(mae_knn,mae_linear, mae_robust)
+)
+
+# Create the bar plot to visually compare MAE values
+ggplot(mae_values, aes(x = Model, y = MAE_LOOCV, fill = Model)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Comparison of MAE_LOOCV for Linear vs. Nonlinear Methods",
+       x = "Model", y = "MAE_LOOCV") +
+  theme_minimal() +
+  scale_fill_manual(values = c("blue", "red", "green"))
+
+```
+```{r}
+library(ggplot2)
+
+# Create a data frame with the MAE values
+mae_values <- data.frame(
+  Model = c("Linear Regression", "20-Nearest Neighbors", "Robust Regression"),
+  MAE_LOOCV = c(2.628322, 2.09185, 2.606015)
+)
+
+# Create the bar plot to visually compare MAE values
+ggplot(mae_values, aes(x = Model, y = MAE_LOOCV, fill = Model)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Comparison of MAE_LOOCV for Linear vs. Nonlinear Methods",
+       x = "Model", y = "MAE_LOOCV") +
+  theme_minimal() +
+  scale_fill_manual(values = c("blue", "red", "green"))
+
+```
