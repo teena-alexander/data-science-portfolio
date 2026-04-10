@@ -1,0 +1,420 @@
+---
+title: "Lesson 9 Examples--Maximal Margin and Support Vector Classifiers"
+author: "Abra Brisbin"
+date: "7/23/2021"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, message = FALSE}
+library(dplyr)
+library(ggformula)
+library(kernlab)
+library(caret)
+```
+
+## Separating Lines
+```{r}
+n = 20
+set.seed(524)
+example_data = data.frame(x1 = runif(n), x2 = runif(n))
+example_data <- example_data %>%
+  mutate(y = factor(ifelse(-.8-2*x1+3*x2 > 0, 1, -1)))
+
+# We'll use this to plot the optimal hyperplane later
+example_data <- example_data %>%
+  tibble::rownames_to_column("Row") %>%
+  mutate(scale_x1 = scale(x1),
+         scale_x2 = scale(x2))
+
+# Plot the data
+example_data %>%
+  gf_point(x2 ~ x1, color =~ y, pch =~ y, lwd = 2.5) %>%
+  gf_refine(scale_shape_manual(values = c(4,2)),
+            scale_color_manual(values = c("red", "blue"))) %>%
+  gf_abline(intercept = .8/3, slope = 2/3)
+
+```
+
+
+```{r}
+example_data %>%
+  gf_point(x2 ~ x1, color =~ factor(y), pch =~ factor(y), lwd = 2.5) %>%
+  gf_refine(scale_shape_manual(values = c(4,2)),
+            scale_color_manual(values = c("red", "blue"))) %>%
+  gf_abline(intercept = .8/3, slope = 2/3) %>%
+  gf_abline(intercept = .4, slope = 1/3) %>%
+  gf_abline(intercept = .1, slope = .9) %>%
+  gf_abline(intercept = .32, slope = .5)
+
+```
+
+### Optimal separating hyperplane
+```{r}
+set.seed(524)
+data_used = example_data
+
+# A cost of 1000 is high enough to be "nearly infinite"
+# to give the optimal separating hyperplane
+ctrl = trainControl(method = "cv", number = 10)
+fit_intro = train(y ~ x1 + x2,
+               data = data_used,
+               method = "svmLinear",
+               tuneGrid = expand.grid(C = 1000),
+               preProcess = c("center","scale"),
+               trControl = ctrl)
+
+example_data <- example_data %>%
+  mutate(is_SV = Row %in% attr(fit_intro$finalModel, "SVindex"))
+
+b = attr(fit_intro$finalModel, "b")
+coefs = attr(fit_intro$finalModel, "coef")[[1]]
+
+example_SV <- example_data %>%
+  filter(is_SV) %>%
+  select(c(scale_x1, scale_x2)) %>%
+  as.matrix()
+
+w = colSums(coefs * example_SV) # beta_1, ... beta_p
+m = -w[1]/w[2] # Slope of the optimal hyperplane
+yint_OSH = b/w[2] # Y-intercept of the optimal hyperplane
+```
+
+```{r}
+example_data <- example_data %>%
+  mutate(to_plot = Row %in% c(1, 8, 11, 17, 18),
+         y_intercept = scale_x2 - w[2]*scale_x1/w[1], # y-intercept of a line through the point and perpendicular to the optimal hyperplane
+         my_slope = w[2]/w[1]) 
+
+# Compute the points where the perpendicular lines intersect the optimal hyperplane
+example_data <- example_data %>%
+  mutate(x1_hit = (yint_OSH-y_intercept)/(my_slope - m))
+example_data <- example_data %>%
+  mutate(x2_hit = x1_hit * m + yint_OSH)
+
+
+subset_example <- example_data %>%
+  filter(to_plot)
+
+example_data %>%
+  gf_point(scale_x2 ~ scale_x1, 
+           color =~ y, pch =~ y) %>%
+  gf_abline(intercept = yint_OSH, slope = m) %>%
+  gf_segment(scale_x2 + x2_hit ~ scale_x1 + x1_hit, color =~ y, data = subset_example) %>%
+  gf_refine(scale_shape_manual(values = c(4,2)),
+            scale_color_manual(values = c("red", "blue")),
+            coord_equal()) # sets equal x and y scales, so perpendicular lines look perpendicular
+
+```
+
+## Non-separable data
+This is the same data as in "When to use a linear kernel" in Lesson 9 Examples--Support Vector Machines.
+```{r}
+n = 20
+set.seed(517) 
+linear_example = data.frame(x1 = runif(n, 0, 1), 
+                            x2 = runif(n, 0, 1))
+
+linear_example <- linear_example %>%
+  tibble::rownames_to_column("Row") %>%
+  mutate(y = factor(ifelse(-1 - 2*x1 + 3*x2 > 0, 1, -1)),
+         scale_x1 = scale(x1),
+         scale_x2 = scale(x2))
+
+linear_example$y[14] = 1 # making the example non-separable
+
+linear_example %>%
+  gf_point(x2 ~ x1, color =~ y, pch =~ y, lwd = 2.5) %>%
+  gf_refine(scale_shape_manual(values = c(4,2)),
+            scale_color_manual(values = c("red", "blue")))
+
+```
+```{r}
+set.seed(517)
+data_used = linear_example
+
+ctrl = trainControl(method = "cv", number = 10)
+fit_non_sep = train(y ~ x1 + x2,
+               data = data_used,
+               method = "svmLinear",
+               tuneGrid = expand.grid(C = 1000),
+               preProcess = c("center","scale"),
+               trControl = ctrl)
+
+linear_example <- linear_example %>%
+  mutate(is_SV = Row %in% attr(fit_non_sep$finalModel, "SVindex"))
+
+b = attr(fit_non_sep$finalModel, "b")
+coefs = attr(fit_non_sep$finalModel, "coef")[[1]]
+
+example_SV <- linear_example %>%
+  filter(is_SV) %>%
+  select(c(scale_x1, scale_x2)) %>%
+  as.matrix()
+
+w = colSums(coefs * example_SV) # beta_1, ... beta_p
+```
+
+```{r}
+linear_example %>%
+  gf_point(scale_x2 ~ scale_x1, 
+           color =~ y, pch =~ y, lwd = 2.5) %>%
+  gf_abline(intercept = b/w[2], slope = -w[1]/w[2]) %>%
+  gf_abline(intercept = (b+1)/w[2], slope = -w[1]/w[2], lty = 2) %>%
+  gf_abline(intercept = (b-1)/w[2], slope = -w[1]/w[2], lty = 2) %>%  
+  gf_refine(scale_shape_manual(values = c(4,2)),
+            scale_color_manual(values = c("red", "blue"))) %>%
+  gf_labs("C = 1000")
+```
+
+### Effect of Cost
+```{r}
+set.seed(517)
+data_used = linear_example
+
+ctrl = trainControl(method = "cv", number = 10)
+fit_low_cost = train(y ~ x1 + x2,
+               data = data_used,
+               method = "svmLinear",
+               tuneGrid = expand.grid(C = 0.1),
+               preProcess = c("center","scale"),
+               trControl = ctrl)
+
+linear_example <- linear_example %>%
+  mutate(is_SV = Row %in% attr(fit_low_cost$finalModel, "SVindex"))
+
+b = attr(fit_low_cost$finalModel, "b")
+coefs = attr(fit_low_cost$finalModel, "coef")[[1]]
+
+example_SV <- linear_example %>%
+  filter(is_SV) %>%
+  select(c(scale_x1, scale_x2)) %>%
+  as.matrix()
+
+w = colSums(coefs * example_SV) # beta_1, ... beta_p
+```
+
+```{r}
+linear_example %>%
+  gf_point(scale_x2 ~ scale_x1, 
+           color =~ y, pch =~ y, lwd = 2.5) %>%
+  gf_abline(intercept = b/w[2], slope = -w[1]/w[2]) %>%
+  gf_abline(intercept = (b+1)/w[2], slope = -w[1]/w[2], lty = 2) %>%
+  gf_abline(intercept = (b-1)/w[2], slope = -w[1]/w[2], lty = 2) %>%  
+  gf_refine(scale_shape_manual(values = c(4,2)),
+            scale_color_manual(values = c("red", "blue"))) %>%
+  gf_labs("C = 0.1")
+```
+
+### Bias and Variance
+```{r}
+n = 30
+set.seed(515) 
+bias_example = data.frame(x1 = runif(n, 0, 1), 
+                            x2 = runif(n, 0, 1))
+
+bias_example <- bias_example %>%
+  tibble::rownames_to_column("Row") %>%
+  mutate(y = factor(ifelse(-.8 - 2*x1 + 3*x2 > 0, 1, -1)),
+         scale_x1 = scale(x1),
+         scale_x2 = scale(x2))
+```
+
+```{r}
+set.seed(515)
+data_used = bias_example
+
+ctrl = trainControl(method = "cv", number = 10)
+fit_bias = train(y ~ x1 + x2,
+               data = data_used,
+               method = "svmLinear",
+               tuneGrid = expand.grid(C = 1000),
+               preProcess = c("center","scale"),
+               trControl = ctrl)
+
+bias_example <- bias_example %>%
+  mutate(is_SV = Row %in% attr(fit_bias$finalModel, "SVindex"))
+
+b = attr(fit_bias$finalModel, "b")
+coefs = attr(fit_bias$finalModel, "coef")[[1]]
+
+example_SV <- bias_example %>%
+  filter(is_SV) %>%
+  select(c(scale_x1, scale_x2)) %>%
+  as.matrix()
+
+w = colSums(coefs * example_SV) # beta_1, ... beta_p
+
+
+# Convert the slope and y-intercept to the units of the unscaled data
+# Store this y-intercept and slope to compare with the modified data set
+sd.ratio = sd(bias_example$x2)/sd(bias_example$x1)
+original_yint = (sd(bias_example$x2) * b/w[2]) + (w[1]/w[2] * mean(bias_example$x1) * sd.ratio) + mean(bias_example$x2)
+original_slope = sd.ratio * -w[1]/w[2]
+
+# Find the y-intercepts of the margin lines, in the units of the unscaled data
+yint_upper = (sd(bias_example$x2) * (b+1)/w[2]) + (w[1]/w[2] * mean(bias_example$x1) * sd.ratio) + mean(bias_example$x2)
+yint_lower = (sd(bias_example$x2) * (b-1)/w[2]) + (w[1]/w[2] * mean(bias_example$x1) * sd.ratio) + mean(bias_example$x2)
+```
+
+```{r}
+bias_example %>%
+  gf_point(x2 ~ x1, 
+           color =~ y, pch =~ y, lwd = 2.5) %>%
+  gf_abline(intercept = original_yint, slope = original_slope) %>%
+  gf_abline(intercept = yint_upper, slope = original_slope, lty = 2) %>%
+  gf_abline(intercept = yint_lower, slope = original_slope, lty = 2) %>%  
+  gf_refine(scale_shape_manual(values = c(4,2)),
+            scale_color_manual(values = c("red", "blue")))
+```
+
+#### Changing the position of 1 point
+```{r}
+bias_example2 = bias_example
+bias_example2$x2[1] = 0.6
+bias_example2 <- bias_example2 %>%
+  mutate(scale_x2 = scale(x2)) # Re-standardize x2
+```
+
+Re-fit the support vector classifier:
+```{r}
+set.seed(515)
+data_used = bias_example2
+
+ctrl = trainControl(method = "cv", number = 10)
+fit_bias2 = train(y ~ x1 + x2,
+               data = data_used,
+               method = "svmLinear",
+               tuneGrid = expand.grid(C = 1000),
+               preProcess = c("center","scale"),
+               trControl = ctrl)
+
+bias_example2 <- bias_example2 %>%
+  mutate(is_SV = Row %in% attr(fit_bias2$finalModel, "SVindex"))
+
+b = attr(fit_bias2$finalModel, "b")
+coefs = attr(fit_bias2$finalModel, "coef")[[1]]
+
+example_SV <- bias_example2 %>%
+  filter(is_SV) %>%
+  select(c(scale_x1, scale_x2)) %>%
+  as.matrix()
+
+w = colSums(coefs * example_SV) # beta_1, ... beta_p
+
+# Convert the slope and y-intercept to the units of the unscaled data
+sd.ratio = sd(bias_example2$x2)/sd(bias_example2$x1)
+new_yint = (sd(bias_example2$x2) * b/w[2]) + (w[1]/w[2] * mean(bias_example2$x1) * sd.ratio) + mean(bias_example2$x2)
+new_slope = sd.ratio * -w[1]/w[2]
+```
+
+```{r}
+bias_example %>%
+  gf_point(x2 ~ x1, 
+           color =~ y, pch =~ y, lwd = 2.5) %>%
+  gf_abline(intercept = new_yint, slope = new_slope, lty = 2) %>%
+  gf_abline(intercept = original_yint, slope = original_slope) %>% # Plot the original support vector classifier
+  gf_refine(scale_shape_manual(values = c(4,2)),
+            scale_color_manual(values = c("red", "blue"))) %>%
+  gf_point(bias_example2$x2[1] ~ bias_example2$x1[1], 
+           pch = 24, lwd = 2.5, bg = "blue") 
+```
+
+### Separable data with a soft margin
+```{r}
+set.seed(515)
+data_used = bias_example
+
+ctrl = trainControl(method = "cv", number = 10)
+fit_bias_low_cost = train(y ~ x1 + x2,
+               data = data_used,
+               method = "svmLinear",
+               tuneGrid = expand.grid(C = 1),
+               preProcess = c("center","scale"),
+               trControl = ctrl)
+
+bias_example <- bias_example %>%
+  mutate(is_SV = Row %in% attr(fit_bias_low_cost$finalModel, "SVindex"))
+
+b = attr(fit_bias_low_cost$finalModel, "b")
+coefs = attr(fit_bias_low_cost$finalModel, "coef")[[1]]
+
+example_SV <- bias_example %>%
+  filter(is_SV) %>%
+  select(c(scale_x1, scale_x2)) %>%
+  as.matrix()
+
+w = colSums(coefs * example_SV) # beta_1, ... beta_p
+
+# Convert the slope and y-intercept to the units of the unscaled data
+# Store this y-intercept and slope to compare with the modified data set
+sd.ratio = sd(bias_example$x2)/sd(bias_example$x1)
+original_yint = (sd(bias_example$x2) * b/w[2]) + (w[1]/w[2] * mean(bias_example$x1) * sd.ratio) + mean(bias_example$x2)
+original_slope = sd.ratio * -w[1]/w[2]
+
+# Find the y-intercepts of the margin lines, in the units of the unscaled data
+yint_upper = (sd(bias_example$x2) * (b+1)/w[2]) + (w[1]/w[2] * mean(bias_example$x1) * sd.ratio) + mean(bias_example$x2)
+yint_lower = (sd(bias_example$x2) * (b-1)/w[2]) + (w[1]/w[2] * mean(bias_example$x1) * sd.ratio) + mean(bias_example$x2)
+```
+
+```{r}
+bias_example %>%
+  gf_point(x2 ~ x1, 
+           color =~ y, pch =~ y, lwd = 2.5) %>%
+  gf_abline(intercept = original_yint, slope = original_slope) %>%
+  gf_abline(intercept = yint_upper, slope = original_slope, lty = 2) %>%
+  gf_abline(intercept = yint_lower, slope = original_slope, lty = 2) %>%  
+  gf_refine(scale_shape_manual(values = c(4,2)),
+            scale_color_manual(values = c("red", "blue")))
+```
+
+#### Changing the position of 1 point with a soft margin
+
+```{r}
+set.seed(515)
+data_used = bias_example2
+
+ctrl = trainControl(method = "cv", number = 10)
+fit_bias2_low_cost = train(y ~ x1 + x2,
+               data = data_used,
+               method = "svmLinear",
+               tuneGrid = expand.grid(C = 1),
+               preProcess = c("center","scale"),
+               trControl = ctrl)
+
+bias_example2 <- bias_example2 %>%
+  mutate(is_SV = Row %in% attr(fit_bias2_low_cost$finalModel, "SVindex"))
+
+b = attr(fit_bias2_low_cost$finalModel, "b")
+coefs = attr(fit_bias2_low_cost$finalModel, "coef")[[1]]
+
+example_SV <- bias_example2 %>%
+  filter(is_SV) %>%
+  select(c(scale_x1, scale_x2)) %>%
+  as.matrix()
+
+w = colSums(coefs * example_SV) # beta_1, ... beta_p
+
+# Convert the slope and y-intercept to the units of the unscaled data
+sd.ratio = sd(bias_example2$x2)/sd(bias_example2$x1)
+new_yint = (sd(bias_example2$x2) * b/w[2]) + (w[1]/w[2] * mean(bias_example2$x1) * sd.ratio) + mean(bias_example2$x2)
+new_slope = sd.ratio * -w[1]/w[2]
+```
+
+```{r}
+bias_example %>%
+  gf_point(x2 ~ x1, 
+           color =~ y, pch =~ y, lwd = 2.5) %>%
+  gf_abline(intercept = new_yint, slope = new_slope, lty = 2) %>%
+  gf_abline(intercept = original_yint, slope = original_slope) %>% # Plot the original support vector classifier
+  gf_refine(scale_shape_manual(values = c(4,2)),
+            scale_color_manual(values = c("red", "blue"))) %>%
+  gf_point(bias_example2$x2[1] ~ bias_example2$x1[1], 
+           pch = 24, lwd = 2.5, bg = "blue") 
+```
+
+
+
